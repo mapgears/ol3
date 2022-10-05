@@ -7,7 +7,7 @@ goog.require('ol.obj');
  * Name of the property that is set onto objects that OpenLayers
  * listens to. Its name is unique to avoid collision with other
  * properties on that object.
- * @private const {string}
+ * @private @const {string}
  */
 ol.events.OL_LM = 'ol_lm_' + ((Math.random() * 1e6) | 0);
 
