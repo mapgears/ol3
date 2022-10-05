@@ -4,6 +4,16 @@ goog.require('ol.obj');
 
 
 /**
+ * Name of the property that is set onto objects that OpenLayers
+ * listens to. Its name is unique to avoid collision with other
+ * properties on that object.
+ * @type {string}
+ * @private
+ */
+ol.events.OL_LM = 'ol_lm_yfkmzteqm';
+
+
+/**
  * @param {ol.EventsKey} listenerObj Listener object.
  * @return {ol.EventsListenerFunctionType} Bound listener.
  */
@@ -56,7 +66,7 @@ ol.events.findListener_ = function(listeners, listener, opt_this,
  * @return {Array.<ol.EventsKey>|undefined} Listeners.
  */
 ol.events.getListeners = function(target, type) {
-  var listenerMap = target.ol_lm;
+  var listenerMap = target[ol.events.OL_LM];
   return listenerMap ? listenerMap[type] : undefined;
 };
 
@@ -70,9 +80,9 @@ ol.events.getListeners = function(target, type) {
  * @private
  */
 ol.events.getListenerMap_ = function(target) {
-  var listenerMap = target.ol_lm;
+  var listenerMap = target[ol.events.OL_LM];
   if (!listenerMap) {
-    listenerMap = target.ol_lm = {};
+    listenerMap = target[ol.events.OL_LM] = {};
   }
   return listenerMap;
 };
@@ -94,11 +104,11 @@ ol.events.removeListeners_ = function(target, type) {
       ol.obj.clear(listeners[i]);
     }
     listeners.length = 0;
-    var listenerMap = target.ol_lm;
+    var listenerMap = target[ol.events.OL_LM];
     if (listenerMap) {
       delete listenerMap[type];
       if (Object.keys(listenerMap).length === 0) {
-        delete target.ol_lm;
+        delete target[ol.events.OL_LM];
       }
     }
   }
