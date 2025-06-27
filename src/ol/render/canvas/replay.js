@@ -518,6 +518,36 @@ ol.render.canvas.Replay.prototype.renderDeclutter_ = function(declutterGroup, fe
   }
 };
 
+/**
+ * @private
+ * @param {string} text The text to draw.
+ * @param {string} textKey The key of the text state.
+ * @param {string} strokeKey The key for the stroke state.
+ * @param {string} fillKey The key for the fill state.
+ * @return {{label: HTMLCanvasElement, anchorX: number, anchorY: number}} The text image and its anchor.
+ */
+ol.render.canvas.Replay.prototype.drawTextImageWithPointPlacement_ = function (text, textKey, strokeKey, fillKey) {
+  var textState = /** @type {ol.render.canvas.TextReplay} */ (this).textStates[textKey];
+
+  var label = /** @type {ol.render.canvas.TextReplay} */ (this).getImage(text, textKey, fillKey, strokeKey);
+
+  var strokeState = /** @type {ol.render.canvas.TextReplay} */ (this).strokeStates;
+  var pixelRatio = this.pixelRatio;
+
+  var align = ol.render.replay.TEXT_ALIGN[textState.textAlign || ol.render.canvas.defaultTextAlign];
+  var baseline = ol.render.replay.TEXT_ALIGN[textState.textBaseline || ol.render.canvas.defaultTextBaseline];
+
+  var strokeWidth = strokeState && strokeState.lineWidth ? strokeState.lineWidth : 0;
+
+  var anchorX = align * label.width / pixelRatio + 2 * (0.5 - align) * strokeWidth;
+  var anchorY = baseline * label.height / pixelRatio + 2 * (0.5 - baseline) * strokeWidth;
+  return {
+    label: label,
+    anchorX: anchorX,
+    anchorY: anchorY
+  };
+}
+
 
 /**
  * @private
@@ -664,6 +694,33 @@ ol.render.canvas.Replay.prototype.replay_ = function(
         var snapToPixel = /** @type {boolean} */ (instruction[14]);
         var width = /** @type {number} */ (instruction[15]);
 
+        if (!image) {
+          if (instruction.length < 20 || !instruction[19]) {
+            ++i;
+            continue;
+          }
+          var text = /** @type {string} */ (instruction[19]);
+          var textKey = /** @type {string} */ (instruction[20]);
+          var strokeKey = /** @type {string} */ (instruction[21]);
+          var fillKey = /** @type {string} */ (instruction[22]);
+
+          var labelWithAnchor = this.drawTextImageWithPointPlacement_(text, textKey, strokeKey, fillKey);
+
+          var textOffsetX = instruction[23];
+          var textOffsetY = instruction[24];
+
+          image = instruction[3] = labelWithAnchor.label;
+          anchorX = instruction[4] = (labelWithAnchor.anchorX - textOffsetX) * this.pixelRatio;
+          anchorY = instruction[5] = (labelWithAnchor.anchorY - textOffsetY) * this.pixelRatio;
+          height = instruction[8] = image.height;
+          width = instruction[15] = image.width;
+        }
+
+        var geometryWidths;
+        if (instruction.length > 25) {
+          geometryWidths = /** @type {number} */ (instruction[25]);
+        }
+
         var padding, backgroundFill, backgroundStroke;
         if (instruction.length > 16) {
           padding = /** @type {Array.<number>} */ (instruction[16]);
@@ -677,7 +734,15 @@ ol.render.canvas.Replay.prototype.replay_ = function(
         if (rotateWithView) {
           rotation += viewRotation;
         }
+        var widthIndex = 0;
+
         for (; d < dd; d += 2) {
+          if (geometryWidths) {
+            if (geometryWidths[widthIndex] < width) {
+              continue;
+            }
+            widthIndex++;
+          }
           this.replayImage_(context,
               pixelCoordinates[d], pixelCoordinates[d + 1], image, anchorX, anchorY,
               declutterGroup, height, opacity, originX, originY, rotation, scale,

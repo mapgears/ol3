@@ -219,8 +219,7 @@ ol.render.canvas.TextReplay.prototype.drawText = function(geometry, feature) {
     this.endGeometry(geometry, feature);
 
   } else {
-    var label = this.getImage(this.text_, this.textKey_, this.fillKey_, this.strokeKey_);
-    var width = label.width / this.pixelRatio;
+    var geometryWidths = [];
     switch (geometryType) {
       case ol.geom.GeometryType.POINT:
       case ol.geom.GeometryType.MULTI_POINT:
@@ -239,8 +238,8 @@ ol.render.canvas.TextReplay.prototype.drawText = function(geometry, feature) {
         break;
       case ol.geom.GeometryType.POLYGON:
         flatCoordinates = /** @type {ol.geom.Polygon} */ (geometry).getFlatInteriorPoint();
-        if (!textState.overflow && flatCoordinates[2] / this.resolution < width) {
-          return;
+        if (!textState.overflow) {
+          geometryWidths.push(flatCoordinates[2] / this.resolution);
         }
         stride = 3;
         break;
@@ -248,9 +247,10 @@ ol.render.canvas.TextReplay.prototype.drawText = function(geometry, feature) {
         var interiorPoints = /** @type {ol.geom.MultiPolygon} */ (geometry).getFlatInteriorPoints();
         flatCoordinates = [];
         for (i = 0, ii = interiorPoints.length; i < ii; i += 3) {
-          if (textState.overflow || interiorPoints[i + 2] / this.resolution >= width) {
-            flatCoordinates.push(interiorPoints[i], interiorPoints[i + 1]);
+          if (!textState.overflow) {
+            geometryWidths.push(interiorPoints[i + 2] / this.resolution);
           }
+          flatCoordinates.push(interiorPoints[i], interiorPoints[i + 1]);
         }
         end = flatCoordinates.length;
         if (end == 0) {
@@ -260,13 +260,39 @@ ol.render.canvas.TextReplay.prototype.drawText = function(geometry, feature) {
       default:
     }
     end = this.appendFlatCoordinates(flatCoordinates, 0, end, stride, false, false);
-    this.beginGeometry(geometry, feature);
+
+    this.saveTextStates_();
+
     if (textState.backgroundFill || textState.backgroundStroke) {
       this.setFillStrokeStyle(textState.backgroundFill, textState.backgroundStroke);
       this.updateFillStyle(this.state, this.applyFill, geometry);
       this.updateStrokeStyle(this.state, this.applyStroke);
     }
-    this.drawTextImage_(label, begin, end);
+    this.beginGeometry(geometry, feature);
+
+    // The image is unknown at this stage so we pass null; it will be computed at render time.
+    // For clarity, we pass Infinity for numerical values that will be computed at render time.
+    this.instructions.push([ol.render.canvas.Instruction.DRAW_IMAGE, begin, end,
+      null, Infinity, Infinity, this.declutterGroup_, Infinity, 1, 0, 0,
+      this.textRotateWithView_, this.textRotation_, 1, true, Infinity,
+      textState.padding == ol.render.canvas.defaultPadding ?
+        ol.render.canvas.defaultPadding : textState.padding.map(function (p) {
+          return p * this.pixelRatio;
+        }),
+      !!textState.backgroundFill, !!textState.backgroundStroke,
+      this.text_, this.textKey_, this.strokeKey_, this.fillKey_,
+      this.textOffsetX_, this.textOffsetY_,
+      geometryWidths.length > 0 ? geometryWidths : null
+    ]);
+    this.hitDetectionInstructions.push([ol.render.canvas.Instruction.DRAW_IMAGE, begin, end,
+      null, Infinity, Infinity, this.declutterGroup_, Infinity, 1, 0, 0,
+      this.textRotateWithView_, this.textRotation_, 1 / this.pixelRatio, true, Infinity,
+      textState.padding, !!textState.backgroundFill, !!textState.backgroundStroke,
+      this.text_, this.textKey_, this.strokeKey_, this.fillKey_,
+      this.textOffsetX_, this.textOffsetY_,
+      geometryWidths.length > 0 ? geometryWidths : null
+    ]);
+
     this.endGeometry(geometry, feature);
   }
 };
@@ -345,46 +371,8 @@ ol.render.canvas.TextReplay.prototype.getImage = function(text, textKey, fillKey
 
 /**
  * @private
- * @param {HTMLCanvasElement} label Label.
- * @param {number} begin Begin.
- * @param {number} end End.
  */
-ol.render.canvas.TextReplay.prototype.drawTextImage_ = function(label, begin, end) {
-  var textState = this.textState_;
-  var strokeState = this.textStrokeState_;
-  var pixelRatio = this.pixelRatio;
-  var align = ol.render.replay.TEXT_ALIGN[textState.textAlign || ol.render.canvas.defaultTextAlign];
-  var baseline = ol.render.replay.TEXT_ALIGN[textState.textBaseline];
-  var strokeWidth = strokeState && strokeState.lineWidth ? strokeState.lineWidth : 0;
-
-  var anchorX = align * label.width / pixelRatio + 2 * (0.5 - align) * strokeWidth;
-  var anchorY = baseline * label.height / pixelRatio + 2 * (0.5 - baseline) * strokeWidth;
-  this.instructions.push([ol.render.canvas.Instruction.DRAW_IMAGE, begin, end,
-    label, (anchorX - this.textOffsetX_) * pixelRatio, (anchorY - this.textOffsetY_) * pixelRatio,
-    this.declutterGroup_, label.height, 1, 0, 0, this.textRotateWithView_, this.textRotation_,
-    1, true, label.width,
-    textState.padding == ol.render.canvas.defaultPadding ?
-      ol.render.canvas.defaultPadding : textState.padding.map(function(p) {
-        return p * pixelRatio;
-      }),
-    !!textState.backgroundFill, !!textState.backgroundStroke
-  ]);
-  this.hitDetectionInstructions.push([ol.render.canvas.Instruction.DRAW_IMAGE, begin, end,
-    label, (anchorX - this.textOffsetX_) * pixelRatio, (anchorY - this.textOffsetY_) * pixelRatio,
-    this.declutterGroup_, label.height, 1, 0, 0, this.textRotateWithView_, this.textRotation_,
-    1 / pixelRatio, true, label.width, textState.padding,
-    !!textState.backgroundFill, !!textState.backgroundStroke
-  ]);
-};
-
-
-/**
- * @private
- * @param {number} begin Begin.
- * @param {number} end End.
- * @param {ol.DeclutterGroup} declutterGroup Declutter group.
- */
-ol.render.canvas.TextReplay.prototype.drawChars_ = function(begin, end, declutterGroup) {
+ol.render.canvas.TextReplay.prototype.saveTextStates_ = function() {
   var strokeState = this.textStrokeState_;
   var textState = this.textState_;
   var fillState = this.textFillState_;
@@ -403,7 +391,6 @@ ol.render.canvas.TextReplay.prototype.drawChars_ = function(begin, end, declutte
       });
     }
   }
-  var textKey = this.textKey_;
   if (!(this.textKey_ in this.textStates)) {
     this.textStates[this.textKey_] = /** @type {ol.CanvasTextState} */ ({
       font: textState.font,
@@ -419,6 +406,21 @@ ol.render.canvas.TextReplay.prototype.drawChars_ = function(begin, end, declutte
       });
     }
   }
+}
+
+/**
+ * @private
+ * @param {number} begin Begin.
+ * @param {number} end End.
+ * @param {ol.DeclutterGroup} declutterGroup Declutter group.
+ */
+ol.render.canvas.TextReplay.prototype.drawChars_ = function(begin, end, declutterGroup) {
+  var strokeState = this.textStrokeState_;
+  var textState = this.textState_;
+  var strokeKey = this.strokeKey_;
+  var textKey = this.textKey_;
+  var fillKey = this.fillKey_;
+  this.saveTextStates_();
 
   var pixelRatio = this.pixelRatio;
   var baseline = ol.render.replay.TEXT_ALIGN[textState.textBaseline];
